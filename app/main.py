@@ -63,7 +63,7 @@ def main():
     """The main function."""
 
     # Create a TCP socket
-    server_socket = socket.create_server((HOST, PORT), reuse_port=True)
+    server_socket = socket.create_server((HOST, PORT))
 
     # Accept the connection from TCP client
     client_socket, client_address = server_socket.accept()
