@@ -1,50 +1,105 @@
+"""A simple HTTP server."""
 import socket
+from enum import StrEnum, Enum
 
-HOST, PORT = "localhost", 4221
+# Constants
+HOST = "localhost"
+PORT = 4221
+BUFFER_ZISE = 1024
+CRLF = "\r\n"
+END_HEADERS = CRLF + CRLF
 
-code_status = {
-    200: 'OK',
-    404: 'Not Found',
-}
+
+class HttpMethod(StrEnum):
+    """An enum representing the HTTP methods."""
+
+    GET = "GET"
 
 
-def parsed_response(code: int, headers: dict = {}, body: str = "") -> str:
-    response_headers = f"HTTP/1.1 {code} {code_status.get(code)}\r\n"
-    for key in headers:
-        response_headers += f"{key}: {headers[key]}\r\n"
-    response_headers += "\r\n"
-    return response_headers + body
+class HttpStatusCode(Enum):
+    """An enum representing the HTTP status codes."""
+
+    OK = (200, "OK")
+    NOT_FOUND = (404, "Not Found")
+
+    def __init__(self, code: int, message: str) -> None:
+        self.code = code
+        self.message = message
+
+
+class Response:
+    """A class representing a HTTP response."""
+
+    def __init__(
+        self, http_version: str, http_status_code: HttpStatusCode, body: str = None
+    ) -> None:
+        self.http_version = http_version
+        self.http_status_code = http_status_code
+        self.body = body
+        self.content_type = "text/plain"
+        self.content_length = 0 if self.body is None else len(self.body)
+
+    def encode(self) -> bytes:
+        """Encode the response into bytes."""
+        message = f"{self.http_version} {self.http_status_code.code} {self.http_status_code.message}{CRLF}"
+        message += f"Content-Type: {self.content_type}{CRLF}"
+        message += f"Content-Length: {self.content_length}{END_HEADERS}"
+        message += f"{self.body}"
+        return message.encode()
+
+
+class Request:
+    """A class representing a HTTP request."""
+
+    def __init__(
+        self, http_method: HttpMethod = None, path: str = None, http_version: str = None
+    ) -> None:
+        self.http_method = http_method
+        self.path = path
+        self.http_version = http_version
+        self.user_agent = None
+
+    def decode(self, data: bytes):
+        """Parse the data from the client into a Request object."""
+        data_list = data.decode().split(CRLF)
+        http_method, path, http_version = data_list[0].split()
+        user_agent = data_list[2].split(":")[1].strip()
+        self.http_method = HttpMethod(http_method)
+        self.path = path
+        self.http_version = http_version
+        self.user_agent = user_agent
 
 
 def main():
-    # Dev
-    # server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # server.bind((HOST, PORT))
-    # server.listen(5)
+    """The main function."""
 
-    # Deploy
-    server = socket.create_server(("localhost", 4221), reuse_port=True)
+    # Create a TCP socket
+    server_socket = socket.create_server((HOST, PORT), reuse_port=True)
 
-    print("Server in port:", PORT)
-    conn, address = server.accept()
-    print("Connected by:", address)
+    # Accept the connection from TCP client
+    client_socket, client_address = server_socket.accept()
 
-    data = conn.recv(1024).decode().splitlines()
-    print(data[0])
+    with client_socket:
+        # Receive the data from client
+        data = client_socket.recv(BUFFER_ZISE)
 
-    http_status = data[0].split(' ')
-    path = http_status[1]
-    if http_status[1] == '/':
-        response = parsed_response(200)
-    elif path.startswith('/echo/'):
-        message = path.split('/echo/')[1]
-        response = parsed_response(200, {
-            "Content-Type":  "text/plain",
-            "Content-Length": f"{len(message)}"
-        }, f"{message}")
-    else:
-        response = parsed_response(404)
-    conn.sendall(response.encode())
+        # Parse the data into a Request object
+        request = Request()
+        request.decode(data)
+
+        # Create a Response object
+        if request.path == "/":
+            response = Response(request.http_version, HttpStatusCode.OK)
+        elif request.path.startswith("/echo/"):
+            message = request.path.split("/echo/")[1]
+            response = Response(request.http_version, HttpStatusCode.OK, message)
+        elif request.path.startswith("/user-agent"):
+            response = Response(request.http_version, HttpStatusCode.OK, request.user_agent)
+        else:
+            response = Response(request.http_version, HttpStatusCode.NOT_FOUND)
+
+        # Send the response to client
+        client_socket.sendall(response.encode())
 
 
 if __name__ == "__main__":
